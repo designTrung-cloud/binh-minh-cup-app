@@ -16,19 +16,44 @@ import {
 import { TEAMS, INITIAL_MATCHES } from './constants';
 import { Team, Match, TeamStats } from './types';
 
+// --- KẾT NỐI FIREBASE ---
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, set } from "firebase/database";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCvca5GvIr_eXZONeR8RixeYajqNzD4QDY",
+  authDomain: "binhminhcup-5e15d.firebaseapp.com",
+  databaseURL: "https://binhminhcup-5e15d-default-rtdb.firebaseio.com",
+  projectId: "binhminhcup-5e15d",
+  storageBucket: "binhminhcup-5e15d.firebasestorage.app",
+  messagingSenderId: "342911646003",
+  appId: "1:342911646003:web:8e54f0706ac434d5746646"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+// -------------------------
+
 export default function App() {
-  const [matches, setMatches] = useState<Match[]>(() => {
-    const saved = localStorage.getItem('binh_minh_cup_matches');
-    return saved ? JSON.parse(saved) : INITIAL_MATCHES;
-  });
+  const [matches, setMatches] = useState<Match[]>(INITIAL_MATCHES);
   const [activeTab, setActiveTab] = useState<'standings' | 'matches' | 'teams'>('standings');
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
   const [homeScore, setHomeScore] = useState<string>('');
   const [awayScore, setAwayScore] = useState<string>('');
 
+  // Lấy dữ liệu từ Firebase ngay khi tải trang
   useEffect(() => {
-    localStorage.setItem('binh_minh_cup_matches', JSON.stringify(matches));
-  }, [matches]);
+    const matchesRef = ref(db, 'matches');
+    onValue(matchesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setMatches(data);
+      } else {
+        // Nếu database trống, đẩy dữ liệu mặc định lên
+        set(ref(db, 'matches'), INITIAL_MATCHES);
+      }
+    });
+  }, []);
 
   const standings = useMemo(() => {
     const stats: Record<number, TeamStats> = {};
@@ -51,26 +76,24 @@ export default function App() {
         const home = stats[match.homeTeamId];
         const away = stats[match.awayTeamId];
 
-        home.played += 1;
-        away.played += 1;
-        home.goalsFor += match.homeScore;
-        home.goalsAgainst += match.awayScore;
-        away.goalsFor += match.awayScore;
-        away.goalsAgainst += match.homeScore;
+        if (home && away) {
+          home.played += 1;
+          away.played += 1;
+          home.goalsFor += match.homeScore;
+          home.goalsAgainst += match.awayScore;
+          away.goalsFor += match.awayScore;
+          away.goalsAgainst += match.homeScore;
 
-        if (match.homeScore > match.awayScore) {
-          home.won += 1;
-          home.points += 3;
-          away.lost += 1;
-        } else if (match.homeScore < match.awayScore) {
-          away.won += 1;
-          away.points += 3;
-          home.lost += 1;
-        } else {
-          home.drawn += 1;
-          home.points += 1;
-          away.drawn += 1;
-          away.points += 1;
+          if (match.homeScore > match.awayScore) {
+            home.won += 1; home.points += 3;
+            away.lost += 1;
+          } else if (match.homeScore < match.awayScore) {
+            away.won += 1; away.points += 3;
+            home.lost += 1;
+          } else {
+            home.drawn += 1; home.points += 1;
+            away.drawn += 1; away.points += 1;
+          }
         }
       }
     });
@@ -92,11 +115,15 @@ export default function App() {
 
     if (isNaN(hScore) || isNaN(aScore)) return;
 
-    setMatches(prev => prev.map(m => 
+    const updatedMatches = matches.map(m => 
       m.id === editingMatch.id 
         ? { ...m, homeScore: hScore, awayScore: aScore, isFinished: true }
         : m
-    ));
+    );
+
+    // CẬP NHẬT LÊN FIREBASE - AI VÀO CŨNG THẤY
+    set(ref(db, 'matches'), updatedMatches);
+
     setEditingMatch(null);
     setHomeScore('');
     setAwayScore('');
@@ -254,36 +281,6 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
-                <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                    <TrendingUp size={24} />
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 uppercase font-bold tracking-widest">Đội dẫn đầu</div>
-                    <div className="text-lg font-black">{standings[0] ? getTeamName(standings[0].teamId) : '---'}</div>
-                  </div>
-                </div>
-                <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
-                    <Info size={24} />
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 uppercase font-bold tracking-widest">Tổng số trận</div>
-                    <div className="text-lg font-black">{matches.filter(m => m.isFinished).length} / {matches.length}</div>
-                  </div>
-                </div>
-                <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
-                    <Award size={24} />
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-500 uppercase font-bold tracking-widest">Bình Minh Cup</div>
-                    <div className="text-lg font-black">League 2024</div>
-                  </div>
-                </div>
-              </div>
             </motion.div>
           )}
 
@@ -309,7 +306,6 @@ export default function App() {
                     className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800/40 transition-all duration-300"
                   >
                     <div className="flex flex-col md:flex-row items-center p-6 gap-6">
-                      {/* Date Info */}
                       <div className="flex flex-col items-center justify-center min-w-[100px] border-r border-zinc-800 pr-6">
                         <div className="text-2xl font-black text-zinc-100">{match.date}</div>
                         <div className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">Thứ {match.dayOfWeek}</div>
@@ -318,15 +314,12 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Match Content */}
                       <div className="flex-1 flex items-center justify-between w-full">
-                        {/* Home Team */}
                         <div className="flex-1 flex flex-col items-end text-right gap-2">
                           <div className="text-lg font-bold text-zinc-100">{getTeamDisplay(match.homeTeamId, match)}</div>
                           <div className="text-[10px] text-zinc-500 uppercase font-medium">Chủ nhà</div>
                         </div>
 
-                        {/* Score */}
                         <div className="mx-8 flex flex-col items-center gap-2">
                           {match.isFinished ? (
                             <div className="flex items-center gap-4">
@@ -339,21 +332,14 @@ export default function App() {
                               VS
                             </div>
                           )}
-                          {match.tai !== undefined && match.tai > 0 && (
-                            <div className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
-                              Tài: {match.tai}
-                            </div>
-                          )}
                         </div>
 
-                        {/* Away Team */}
                         <div className="flex-1 flex flex-col items-start text-left gap-2">
                           <div className="text-lg font-bold text-zinc-100">{getTeamDisplay(match.awayTeamId, match)}</div>
                           <div className="text-[10px] text-zinc-500 uppercase font-medium">Khách</div>
                         </div>
                       </div>
 
-                      {/* Actions */}
                       <div className="pl-6 border-l border-zinc-800 flex items-center">
                         <button 
                           onClick={() => {
@@ -394,7 +380,6 @@ export default function App() {
                   </div>
                   
                   <div className="space-y-3">
-                    <div className="text-[10px] uppercase font-bold tracking-widest text-zinc-600 mb-4">Danh sách cầu thủ</div>
                     {team.players.map((player, idx) => (
                       <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-800/50 border border-zinc-800/50">
                         <div className="flex items-center gap-3">
